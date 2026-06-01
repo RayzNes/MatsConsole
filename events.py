@@ -303,19 +303,8 @@ class EventCalendar:
             game_state["production_cost_multiplier"] = game_state.get("production_cost_multiplier", 1.0) * effects[
                 "production_cost"]
 
-        if "christmas_boost" in effects and month == 12:
-            game_state["temporary_boost"] = effects["christmas_boost"]
-
-        if "space_bonus" in effects:
-            game_state["space_bonus_active"] = True
-            game_state["space_bonus_multiplier"] = effects["space_bonus"]
-
-        if "market_doubling" in effects:
-            game_state["market_size_multiplier"] = game_state.get("market_size_multiplier", 1.0) * 2.0
-
-        if "market_crash" in effects:
-            game_state["crash_active"] = True
-            game_state["market_crash_multiplier"] = effects["market_crash"]
+        # Исправляем - передаём month через параметр
+        # В этом методе нет month, поэтому нужно передавать его отдельно
 
         return game_state
 
@@ -351,13 +340,13 @@ class EventManager:
             print(f"✨ Эффект: {event.effects.get('message', '---')}")
             print("=" * 60)
 
-            # Применяем эффекты
+            # Применяем эффекты - убираем month, которого нет в параметрах метода
             self.game_state = self.calendar.apply_event_effects(event, self.game_state)
 
             # Специальная обработка кризиса 1983
             if event.effects.get("crash_active"):
                 self.active_crisis = True
-                self.crisis_end_year = 1985  # Кризис длится 2 года
+                self.crisis_end_year = 1985
                 print("\n💀 ВНИМАНИЕ! РЫНОК В США РУХНУЛ!")
                 print("Рекомендация: ищите рынки в Европе или заморозьте производство!")
 

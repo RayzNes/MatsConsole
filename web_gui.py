@@ -1,9 +1,15 @@
-"""Веб-интерфейс для игры с использованием Flask"""
+import sys
+import os
 from flask import Flask, render_template_string, jsonify, request
 import json
 import threading
 import webbrowser
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from engine import TimeEngine
+from components import CPU, RAM, ComponentDatabase
+from constructor import ConsoleBuild
 
 app = Flask(__name__)
 game_engine = None
@@ -683,6 +689,24 @@ HTML_TEMPLATE = """
 </html>
 """
 
+import sys
+import os
+from flask import Flask, render_template_string, jsonify, request
+import json
+import threading
+import webbrowser
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from engine import TimeEngine
+from components import CPU, RAM, ComponentDatabase  # Добавляем ComponentDatabase
+from constructor import ConsoleBuild
+
+app = Flask(__name__)
+game_engine = None
+
+
+# ... (весь HTML_TEMPLATE такой же, не меняем) ...
 
 class GameWebGUI:
     def __init__(self):
@@ -691,157 +715,240 @@ class GameWebGUI:
         game_engine = self.engine
         self.selected_cpu = None
         self.selected_ram = None
+        self.sales_history = []
+        self.cpu_cache = []
+        self.ram_cache = []
+        # Добавляем историю событий для отображения
+        self.events_history = []
 
     def setup_routes(self):
         @app.route('/')
         def index():
             return render_template_string(HTML_TEMPLATE)
 
+        @app.route('/api/components')
+        def get_components():
+            """Получить список доступных компонентов"""
+            try:
+                print(f"Запрос компонентов для года: {self.engine.year}")
+                available_cpus = self.engine.db.get_available_cpus_by_year(self.engine.year)
+                available_rams = self.engine.db.get_available_rams_by_year(self.engine.year)
+
+                self.cpu_cache = available_cpus
+                self.ram_cache = available_rams
+
+                print(f"Найдено CPU: {len(available_cpus)}, RAM: {len(available_rams)}")
+
+                return jsonify({
+                    'cpus': [{'name': cpu.name, 'price': cpu.price, 'power': cpu.power,
+                              'release_year': cpu.release_year, 'cores': getattr(cpu, 'cores', 1),
+                              'frequency': getattr(cpu, 'frequency', 0)}
+                             for cpu in available_cpus],
+                    'rams': [{'name': ram.name, 'price': ram.price, 'power': ram.power,
+                              'size': getattr(ram, 'size', 0), 'ram_type': getattr(ram, 'ram_type', 'DRAM')}
+                             for ram in available_rams]
+                })
+            except Exception as e:
+                print(f"Ошибка в get_components: {e}")
+                import traceback
+                traceback.print_exc()
+                return jsonify({'cpus': [], 'rams': [], 'error': str(e)})
+
         @app.route('/api/game_state')
         def game_state():
-            # Получаем доступные компоненты
-            available_cpus = self.engine.db.get_available_cpus_by_year(self.engine.year)
-            available_rams = self.engine.db.get_available_rams_by_year(self.engine.year)
+            """Получить полное состояние игры"""
+            try:
+                # Получаем доступные компоненты через engine.db
+                available_cpus = self.engine.db.get_available_cpus_by_year(self.engine.year)
+                available_rams = self.engine.db.get_available_rams_by_year(self.engine.year)
 
-            # Прогноз продаж
-            forecast_sales = 0
-            if self.engine.console_build and self.engine.console_build.is_complete():
-                forecast_sales = self.engine.market.calculate_sales(
-                    self.engine.console_build,
-                    self.engine.sales_manager.current_price,
-                    self.engine.sales_manager.marketing_budget
-                )
+                # Прогноз продаж
+                forecast_sales = 0
+                if self.engine.console_build and self.engine.console_build.is_complete():
+                    forecast_sales = self.engine.market.calculate_sales(
+                        self.engine.console_build,
+                        self.engine.sales_manager.current_price,
+                        self.engine.sales_manager.marketing_budget
+                    )
 
-            # Данные о рынке
-            market_data = {
-                'demand': 0,
-                'reputation': self.engine.market.reputation,
-                'market_share': self.engine.market.market_share,
-                'total_sold': self.engine.market.total_sold,
-                'sales_history': list(self.engine.market.sales_history) if hasattr(self.engine.market,
-                                                                                   'sales_history') else []
-            }
+                    self.sales_history.append(forecast_sales)
+                    if len(self.sales_history) > 20:
+                        self.sales_history.pop(0)
 
-            if self.engine.console_build and self.engine.console_build.is_complete():
-                market_data['demand'] = self.engine.market.calculate_demand_score(
-                    self.engine.console_build,
-                    self.engine.sales_manager.current_price
-                )
+                # Данные о рынке
+                market_data = {
+                    'demand': 0,
+                    'reputation': self.engine.market.reputation,
+                    'market_share': self.engine.market.market_share,
+                    'total_sold': self.engine.market.total_sold,
+                    'sales_history': self.sales_history
+                }
 
-            # Данные истории
-            history_data = {
-                'active_effects': [],
-                'past_events': []
-            }
+                if self.engine.console_build and self.engine.console_build.is_complete():
+                    market_data['demand'] = self.engine.market.calculate_demand_score(
+                        self.engine.console_build,
+                        self.engine.sales_manager.current_price
+                    )
 
-            # Активные эффекты
-            effects = self.engine.event_manager.game_state
-            if effects.get('ram_cost_multiplier', 1.0) != 1.0:
-                history_data['active_effects'].append(
-                    f"Стоимость памяти: {effects['ram_cost_multiplier'] * 100:.0f}% от базовой")
-            if effects.get('market_size_multiplier', 1.0) != 1.0:
-                history_data['active_effects'].append(
-                    f"Размер рынка: {effects['market_size_multiplier'] * 100:.0f}% от базового")
-            if effects.get('crash_active'):
-                history_data['active_effects'].append("КРИЗИС 1983 АКТИВЕН! Спрос упал на 85%")
+                # Данные истории - собираем активные эффекты
+                active_effects = []
+                effects = self.engine.event_manager.game_state
 
-            # Произошедшие события
-            for event in self.engine.event_manager.calendar.triggered_events[-10:]:
-                history_data['past_events'].append({
-                    'date': f"{event.month}.{event.year}",
-                    'title': event.title,
-                    'description': event.description
+                if effects.get('ram_cost_multiplier', 1.0) != 1.0:
+                    active_effects.append(
+                        f"💰 Стоимость памяти: {effects['ram_cost_multiplier'] * 100:.0f}% от базовой")
+                if effects.get('market_size_multiplier', 1.0) != 1.0:
+                    active_effects.append(
+                        f"📊 Размер рынка: {effects['market_size_multiplier'] * 100:.0f}% от базового")
+                if effects.get('production_cost_multiplier', 1.0) != 1.0:
+                    active_effects.append(
+                        f"🏭 Стоимость производства: {effects['production_cost_multiplier'] * 100:.0f}% от базовой")
+                if effects.get('crash_active'):
+                    active_effects.append("💀 КРИЗИС 1983 АКТИВЕН! Спрос упал на 85%")
+                if effects.get('space_bonus_active'):
+                    active_effects.append(
+                        f"🚀 Космический бонус: +{(effects['space_bonus_multiplier'] - 1) * 100:.0f}% к продажам")
+
+                # Произошедшие события
+                past_events = []
+                for event in self.engine.event_manager.calendar.triggered_events[-15:]:
+                    past_events.append({
+                        'date': f"{event.month}.{event.year}",
+                        'title': event.title,
+                        'description': event.description
+                    })
+
+                history_data = {
+                    'active_effects': active_effects,
+                    'past_events': past_events
+                }
+
+                # Форматируем дату
+                months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+                          'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря']
+                date_str = f"{self.engine.week}-я неделя {months[self.engine.month - 1]} {self.engine.year} года"
+
+                return jsonify({
+                    'date': date_str,
+                    'balance': self.engine.balance,
+                    'has_console': self.engine.console_build is not None and self.engine.console_build.is_complete(),
+                    'cpu_name': self.engine.console_build.cpu.name if self.engine.console_build and self.engine.console_build.cpu else None,
+                    'ram_name': self.engine.console_build.ram.name if self.engine.console_build and self.engine.console_build.ram else None,
+                    'total_power': self.engine.console_build.calculate_total_power() if self.engine.console_build else 0,
+                    'total_cost': self.engine.console_build.calculate_total_cost() if self.engine.console_build else 0,
+                    'is_selling': self.engine.sales_manager.is_selling,
+                    'current_price': self.engine.sales_manager.current_price,
+                    'marketing_budget': self.engine.sales_manager.marketing_budget,
+                    'forecast_sales': forecast_sales,
+                    'available_cpus': [
+                        {'name': cpu.name, 'price': cpu.price, 'power': cpu.power, 'release_year': cpu.release_year}
+                        for cpu in available_cpus],
+                    'available_rams': [
+                        {'name': ram.name, 'price': ram.price, 'power': ram.power, 'size': ram.size}
+                        for ram in available_rams],
+                    'selected_cpu': self.selected_cpu.name if self.selected_cpu else None,
+                    'selected_ram': self.selected_ram.name if self.selected_ram else None,
+                    'selected_cost': (self.selected_cpu.price if self.selected_cpu else 0) + (
+                        self.selected_ram.price if self.selected_ram else 0),
+                    'market_data': market_data,
+                    'history_data': history_data,
+                    'sales_status': self.engine.sales_manager.is_selling
                 })
-
-            return jsonify({
-                'date': self.engine.get_date_string(),
-                'balance': self.engine.balance,
-                'has_console': self.engine.console_build is not None and self.engine.console_build.is_complete(),
-                'cpu_name': self.engine.console_build.cpu.name if self.engine.console_build else None,
-                'ram_name': self.engine.console_build.ram.name if self.engine.console_build else None,
-                'total_power': self.engine.console_build.calculate_total_power() if self.engine.console_build else 0,
-                'total_cost': self.engine.console_build.calculate_total_cost() if self.engine.console_build else 0,
-                'is_selling': self.engine.sales_manager.is_selling,
-                'current_price': self.engine.sales_manager.current_price,
-                'marketing_budget': self.engine.sales_manager.marketing_budget,
-                'forecast_sales': forecast_sales,
-                'available_cpus': [
-                    {'name': cpu.name, 'price': cpu.price, 'power': cpu.power, 'release_year': cpu.release_year} for cpu
-                    in available_cpus],
-                'available_rams': [{'name': ram.name, 'price': ram.price, 'power': ram.power, 'size': ram.size} for ram
-                                   in available_rams],
-                'selected_cpu': self.selected_cpu.name if self.selected_cpu else None,
-                'selected_ram': self.selected_ram.name if self.selected_ram else None,
-                'selected_cost': (self.selected_cpu.price if self.selected_cpu else 0) + (
-                    self.selected_ram.price if self.selected_ram else 0),
-                'market_data': market_data,
-                'history_data': history_data
-            })
+            except Exception as e:
+                print(f"Ошибка в game_state: {e}")
+                import traceback
+                traceback.print_exc()
+                return jsonify({'error': str(e), 'date': 'Ошибка загрузки'})
 
         @app.route('/api/next_week', methods=['POST'])
         def next_week():
-            self.engine.next_week()
-            return jsonify({'success': True})
+            try:
+                self.engine.next_week()
+                return jsonify({'success': True})
+            except Exception as e:
+                print(f"Ошибка в next_week: {e}")
+                return jsonify({'success': False, 'error': str(e)})
 
         @app.route('/api/assemble', methods=['POST'])
         def assemble():
-            data = request.json
-            cpu_name = data.get('cpu_name')
-            ram_name = data.get('ram_name')
+            try:
+                data = request.json
+                cpu_name = data.get('cpu_name')
+                ram_name = data.get('ram_name')
 
-            # Находим компоненты
-            cpu = None
-            ram = None
+                print(f"Сборка консоли: CPU={cpu_name}, RAM={ram_name}")
 
-            for c in self.engine.db.cpus:
-                if c.name == cpu_name:
-                    cpu = c
-                    break
+                # Находим компоненты
+                cpu = None
+                ram = None
 
-            for r in self.engine.db.rams:
-                if r.name == ram_name:
-                    ram = r
-                    break
+                for c in self.engine.db.cpus:
+                    if c.name == cpu_name:
+                        cpu = c
+                        break
 
-            if not cpu or not ram:
-                return jsonify({'success': False, 'message': 'Компоненты не найдены'})
+                for r in self.engine.db.rams:
+                    if r.name == ram_name:
+                        ram = r
+                        break
 
-            total_cost = cpu.price + ram.price
-            if total_cost > self.engine.balance:
-                return jsonify({'success': False, 'message': f'Недостаточно средств! Нужно ${total_cost:,.0f}'})
+                if not cpu or not ram:
+                    return jsonify({'success': False, 'message': 'Компоненты не найдены'})
 
-            from constructor import ConsoleBuild
-            build = ConsoleBuild(self.engine.year)
-            build.cpu = cpu
-            build.ram = ram
-            self.engine.console_build = build
-            self.engine.balance -= total_cost
+                total_cost = cpu.price + ram.price
+                if total_cost > self.engine.balance:
+                    return jsonify({'success': False, 'message': f'Недостаточно средств! Нужно ${total_cost:,.0f}'})
 
-            return jsonify({'success': True, 'message': f'Консоль собрана! Стоимость: ${total_cost:,.0f}'})
+                build = ConsoleBuild(self.engine.year)
+                build.cpu = cpu
+                build.ram = ram
+                self.engine.console_build = build
+                self.engine.balance -= total_cost
+
+                return jsonify({'success': True, 'message': f'Консоль собрана! Стоимость: ${total_cost:,.0f}'})
+            except Exception as e:
+                print(f"Ошибка в assemble: {e}")
+                import traceback
+                traceback.print_exc()
+                return jsonify({'success': False, 'message': str(e)})
 
         @app.route('/api/toggle_sales', methods=['POST'])
         def toggle_sales():
-            self.engine.sales_manager.is_selling = not self.engine.sales_manager.is_selling
-            return jsonify({'success': True})
+            try:
+                self.engine.sales_manager.is_selling = not self.engine.sales_manager.is_selling
+                return jsonify({'success': True})
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)})
 
         @app.route('/api/set_price', methods=['POST'])
         def set_price():
-            data = request.json
-            self.engine.sales_manager.current_price = data.get('price', 150)
-            return jsonify({'success': True})
+            try:
+                data = request.json
+                self.engine.sales_manager.current_price = data.get('price', 150)
+                return jsonify({'success': True})
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)})
 
         @app.route('/api/set_marketing', methods=['POST'])
         def set_marketing():
-            data = request.json
-            budget = data.get('budget', 0)
-            if budget <= self.engine.balance:
-                self.engine.sales_manager.marketing_budget = budget
-            return jsonify({'success': True})
+            try:
+                data = request.json
+                budget = data.get('budget', 0)
+                if budget <= self.engine.balance:
+                    self.engine.sales_manager.marketing_budget = budget
+                return jsonify({'success': True})
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)})
 
     def run(self):
         self.setup_routes()
+        print("=" * 60)
+        print("🎮 Игра запущена!")
+        print("🌐 Открыть в браузере: http://127.0.0.1:5000")
+        print("📌 Нажмите Ctrl+C для остановки")
+        print("=" * 60)
         webbrowser.open('http://127.0.0.1:5000')
-        app.run(debug=False, use_reloader=False)
+        app.run(debug=True, use_reloader=False, host='127.0.0.1', port=5000)
 
 
 if __name__ == "__main__":

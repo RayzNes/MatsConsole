@@ -1,12 +1,8 @@
-"""
-Движок времени для игры
-"""
-
 from typing import Optional
 from constructor import ConsoleBuild, ConstructorMenu
 from market import Market, SalesManager
 from events import EventManager
-
+from components import ComponentDatabase  # Добавляем импорт
 
 class TimeEngine:
     """Движок времени, управляющий игровым циклом"""
@@ -17,6 +13,9 @@ class TimeEngine:
         self.week = 1
         self.balance = 100_000
         self.console_build: Optional[ConsoleBuild] = None
+
+        # Добавляем базу данных компонентов
+        self.db = ComponentDatabase()  # <-- ДОБАВИТЬ ЭТУ СТРОКУ
 
         # Добавляем менеджер исторических событий
         self.event_manager = EventManager()
@@ -52,8 +51,8 @@ class TimeEngine:
         events = self.event_manager.update(self.year, self.month)
 
         if events:
-            # Пауза для чтения сообщений
-            input("\nНажмите Enter для продолжения...")
+            # Пауза для чтения сообщений (в консольной версии)
+            pass
 
     def update_balance(self):
         """Обновить баланс (математическая модель с учётом продаж и истории)"""
