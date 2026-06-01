@@ -132,6 +132,11 @@ class Market:
         self.market_trend += change
         self.market_trend = max(-0.2, min(0.2, self.market_trend))
 
+    def get_reputation_history(self):
+        """Вернуть историю репутации (для графика)"""
+        # Здесь можно хранить историю, но для простоты возвращаем текущее значение
+        return self.reputation
+
     def display_market_info(self, console: ConsoleBuild, price: float):
         """Отобразить информацию о рынке"""
         print("\n" + "=" * 60)
