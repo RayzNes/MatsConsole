@@ -14,7 +14,7 @@ from constructor import ConsoleBuild
 app = Flask(__name__)
 game_engine = None
 
-# HTML шаблон с CSS и JavaScript
+# HTML шаблон с CSS и JavaScript - ИСПРАВЛЕННЫЙ
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="ru">
@@ -41,7 +41,6 @@ HTML_TEMPLATE = """
             margin: 0 auto;
         }
 
-        /* Вкладки */
         .tabs {
             display: flex;
             gap: 10px;
@@ -68,7 +67,6 @@ HTML_TEMPLATE = """
             color: white;
         }
 
-        /* Панели */
         .panel {
             background: #252535;
             border-radius: 12px;
@@ -87,7 +85,6 @@ HTML_TEMPLATE = """
             to { opacity: 1; transform: translateY(0); }
         }
 
-        /* Карточки */
         .card {
             background: #1e1e2e;
             border-radius: 8px;
@@ -108,7 +105,6 @@ HTML_TEMPLATE = """
             border-left-color: #4ae27a;
         }
 
-        /* Заголовки */
         h1 {
             font-size: 28px;
             margin-bottom: 20px;
@@ -127,7 +123,6 @@ HTML_TEMPLATE = """
             color: #aaa;
         }
 
-        /* Статистика */
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -154,7 +149,6 @@ HTML_TEMPLATE = """
             color: #aaa;
         }
 
-        /* Прогресс-бары */
         .progress-bar {
             background: #2a2a3a;
             height: 30px;
@@ -174,7 +168,6 @@ HTML_TEMPLATE = """
             font-weight: bold;
         }
 
-        /* Кнопки */
         .btn {
             background: #4a90e2;
             color: white;
@@ -213,7 +206,6 @@ HTML_TEMPLATE = """
             background: #e2a04a;
         }
 
-        /* Списки компонентов */
         .component-list {
             max-height: 300px;
             overflow-y: auto;
@@ -238,7 +230,6 @@ HTML_TEMPLATE = """
             color: white;
         }
 
-        /* График */
         .chart-container {
             background: #1e1e2e;
             padding: 15px;
@@ -251,18 +242,15 @@ HTML_TEMPLATE = """
             height: auto;
         }
 
-        /* Адаптивность */
         @media (max-width: 768px) {
             .stats-grid {
                 grid-template-columns: 1fr;
             }
-
             .tabs {
                 flex-direction: column;
             }
         }
 
-        /* Ползунки */
         .slider-container {
             margin: 15px 0;
         }
@@ -272,7 +260,6 @@ HTML_TEMPLATE = """
             margin: 10px 0;
         }
 
-        /* Сообщения */
         .message {
             position: fixed;
             bottom: 20px;
@@ -366,7 +353,7 @@ HTML_TEMPLATE = """
             <div class="card">
                 <h3>Цена</h3>
                 <div class="slider-container">
-                    <input type="range" id="priceSlider" min="10" max="500" step="10" value="150">
+                    <input type="range" id="priceSlider" min="10" max="500" step="10" value="150" onchange="updatePrice()">
                     <div>💰 Цена: $<span id="priceValue">150</span></div>
                 </div>
             </div>
@@ -374,7 +361,7 @@ HTML_TEMPLATE = """
             <div class="card">
                 <h3>Маркетинг</h3>
                 <div class="slider-container">
-                    <input type="range" id="marketingSlider" min="0" max="1000" step="50" value="0">
+                    <input type="range" id="marketingSlider" min="0" max="1000" step="50" value="0" onchange="updateMarketing()">
                     <div>📢 Бюджет: $<span id="marketingValue">0</span> / неделя</div>
                 </div>
             </div>
@@ -429,6 +416,8 @@ HTML_TEMPLATE = """
     <script>
         let salesChart = null;
         let currentData = {};
+        let selectedCPUName = null;
+        let selectedRAMName = null;
 
         function switchTab(tabName) {
             document.querySelectorAll('.panel').forEach(panel => {
@@ -437,12 +426,11 @@ HTML_TEMPLATE = """
             document.querySelectorAll('.tab').forEach(tab => {
                 tab.classList.remove('active');
             });
-
-            document.getElementById(tabName + 'Panel').classList.add('active');
             event.target.classList.add('active');
+            document.getElementById(tabName + 'Panel').classList.add('active');
 
-            if (tabName === 'market') {
-                updateMarketData();
+            if (tabName === 'market' && salesChart) {
+                updateMarketChart();
             }
         }
 
@@ -453,15 +441,66 @@ HTML_TEMPLATE = """
         }
 
         async function nextWeek() {
-            const response = await fetch('/api/next_week', { method: 'POST' });
+            await fetch('/api/next_week', { method: 'POST' });
             await fetchGameState();
         }
 
-        async function assembleConsole() {
-            const selectedCPU = document.querySelector('.component-item.selected[data-type="cpu"]');
-            const selectedRAM = document.querySelector('.component-item.selected[data-type="ram"]');
+        function selectCPU(element, cpuName) {
+            document.querySelectorAll('#cpuList .component-item').forEach(el => {
+                el.classList.remove('selected');
+            });
+            element.classList.add('selected');
+            selectedCPUName = cpuName;
+            updateSelectedDisplay();
+            // Отправляем на сервер для сохранения
+            fetch('/api/select_cpu', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cpu_name: cpuName })
+            });
+        }
 
-            if (!selectedCPU || !selectedRAM) {
+        function selectRAM(element, ramName) {
+            document.querySelectorAll('#ramList .component-item').forEach(el => {
+                el.classList.remove('selected');
+            });
+            element.classList.add('selected');
+            selectedRAMName = ramName;
+            updateSelectedDisplay();
+            fetch('/api/select_ram', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ram_name: ramName })
+            });
+        }
+
+        function updateSelectedDisplay() {
+            const cpuDisplay = selectedCPUName ? selectedCPUName : 'Не выбран';
+            const ramDisplay = selectedRAMName ? selectedRAMName : 'Не выбрана';
+
+            // Находим цены выбранных компонентов
+            let cpuPrice = 0;
+            let ramPrice = 0;
+
+            if (selectedCPUName && currentData.available_cpus) {
+                const cpu = currentData.available_cpus.find(c => c.name === selectedCPUName);
+                if (cpu) cpuPrice = cpu.price;
+            }
+            if (selectedRAMName && currentData.available_rams) {
+                const ram = currentData.available_rams.find(r => r.name === selectedRAMName);
+                if (ram) ramPrice = ram.price;
+            }
+
+            const totalCost = cpuPrice + ramPrice;
+            document.getElementById('selectedComponents').innerHTML = `
+                <div>CPU: ${cpuDisplay}</div>
+                <div>RAM: ${ramDisplay}</div>
+                <div>Итоговая стоимость: $${totalCost.toLocaleString()}</div>
+            `;
+        }
+
+        async function assembleConsole() {
+            if (!selectedCPUName || !selectedRAMName) {
                 showMessage('Выберите процессор и память!', 'warning');
                 return;
             }
@@ -470,13 +509,25 @@ HTML_TEMPLATE = """
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    cpu_name: selectedCPU.dataset.name,
-                    ram_name: selectedRAM.dataset.name
+                    cpu_name: selectedCPUName,
+                    ram_name: selectedRAMName
                 })
             });
 
             const result = await response.json();
             showMessage(result.message, result.success ? 'success' : 'error');
+            if (result.success) {
+                selectedCPUName = null;
+                selectedRAMName = null;
+                // Очищаем выделение
+                document.querySelectorAll('#cpuList .component-item').forEach(el => {
+                    el.classList.remove('selected');
+                });
+                document.querySelectorAll('#ramList .component-item').forEach(el => {
+                    el.classList.remove('selected');
+                });
+                updateSelectedDisplay();
+            }
             await fetchGameState();
         }
 
@@ -535,11 +586,13 @@ HTML_TEMPLATE = """
                 <div>Прогноз: ~${currentData.forecast_sales || 0} шт./неделю</div>
             `;
 
-            // Конструктор
+            // Конструктор - обновляем списки
             if (currentData.available_cpus) {
                 const cpuList = document.getElementById('cpuList');
+                const currentSelectedCPU = selectedCPUName;
                 cpuList.innerHTML = currentData.available_cpus.map(cpu => `
-                    <div class="component-item" data-type="cpu" data-name="${cpu.name}" onclick="selectComponent(this)">
+                    <div class="component-item ${currentSelectedCPU === cpu.name ? 'selected' : ''}" 
+                         onclick="selectCPU(this, '${cpu.name}')">
                         <strong>${cpu.name}</strong><br>
                         Цена: $${cpu.price.toLocaleString()} | Мощность: ${cpu.power} ед. | Год: ${cpu.release_year}
                     </div>
@@ -548,20 +601,24 @@ HTML_TEMPLATE = """
 
             if (currentData.available_rams) {
                 const ramList = document.getElementById('ramList');
+                const currentSelectedRAM = selectedRAMName;
                 ramList.innerHTML = currentData.available_rams.map(ram => `
-                    <div class="component-item" data-type="ram" data-name="${ram.name}" onclick="selectComponent(this)">
+                    <div class="component-item ${currentSelectedRAM === ram.name ? 'selected' : ''}" 
+                         onclick="selectRAM(this, '${ram.name}')">
                         <strong>${ram.name}</strong><br>
                         Цена: $${ram.price.toLocaleString()} | Мощность: ${ram.power} ед. | Размер: ${ram.size}MB
                     </div>
                 `).join('');
             }
 
-            // Выбранные компоненты
-            document.getElementById('selectedComponents').innerHTML = `
-                <div>CPU: ${currentData.selected_cpu || 'Не выбран'}</div>
-                <div>RAM: ${currentData.selected_ram || 'Не выбрана'}</div>
-                <div>Итоговая стоимость: $${(currentData.selected_cost || 0).toLocaleString()}</div>
-            `;
+            // Сохраняем выбранные компоненты из сервера при первом запуске
+            if (currentData.saved_cpu && !selectedCPUName) {
+                selectedCPUName = currentData.saved_cpu;
+            }
+            if (currentData.saved_ram && !selectedRAMName) {
+                selectedRAMName = currentData.saved_ram;
+            }
+            updateSelectedDisplay();
 
             // Меню продаж
             document.getElementById('salesStatus').innerHTML = `
@@ -571,66 +628,66 @@ HTML_TEMPLATE = """
             toggleBtn.innerText = currentData.is_selling ? 'Остановить продажи' : 'Начать продажи';
             toggleBtn.className = currentData.is_selling ? 'btn btn-danger' : 'btn btn-success';
 
-            document.getElementById('priceSlider').value = currentData.current_price || 150;
-            document.getElementById('priceValue').innerText = currentData.current_price || 150;
-            document.getElementById('marketingSlider').value = currentData.marketing_budget || 0;
-            document.getElementById('marketingValue').innerText = currentData.marketing_budget || 0;
+            // Обновляем ползунки только если они изменились
+            const priceSlider = document.getElementById('priceSlider');
+            if (priceSlider && priceSlider.value != (currentData.current_price || 150)) {
+                priceSlider.value = currentData.current_price || 150;
+                document.getElementById('priceValue').innerText = currentData.current_price || 150;
+            }
+
+            const marketingSlider = document.getElementById('marketingSlider');
+            if (marketingSlider && marketingSlider.value != (currentData.marketing_budget || 0)) {
+                marketingSlider.value = currentData.marketing_budget || 0;
+                document.getElementById('marketingValue').innerText = currentData.marketing_budget || 0;
+            }
 
             // Прогноз
             document.getElementById('forecast').innerHTML = `
                 <div style="font-size: 24px; font-weight: bold;">~${currentData.forecast_sales || 0} шт.</div>
                 <div>Ожидаемый доход: ~$${((currentData.forecast_sales || 0) * (currentData.current_price || 0)).toLocaleString()}</div>
             `;
+
+            // Данные рынка
+            if (currentData.market_data) {
+                document.getElementById('demand').innerText = Math.round(currentData.market_data.demand || 0) + '%';
+                document.getElementById('reputation').innerText = Math.round((currentData.market_data.reputation || 0) * 100) + '%';
+                document.getElementById('marketShare').innerText = Math.round((currentData.market_data.market_share || 0) * 100) + '%';
+                document.getElementById('totalSold').innerText = currentData.market_data.total_sold || 0;
+                updateMarketChart();
+            }
+
+            // История
+            if (currentData.history_data) {
+                const effectsDiv = document.getElementById('activeEffects');
+                if (currentData.history_data.active_effects && currentData.history_data.active_effects.length > 0) {
+                    effectsDiv.innerHTML = currentData.history_data.active_effects.map(effect => `
+                        <div class="card card-warning">${effect}</div>
+                    `).join('');
+                } else {
+                    effectsDiv.innerHTML = '<div>Нет активных эффектов</div>';
+                }
+
+                const eventsDiv = document.getElementById('pastEvents');
+                if (currentData.history_data.past_events && currentData.history_data.past_events.length > 0) {
+                    eventsDiv.innerHTML = currentData.history_data.past_events.map(event => `
+                        <div class="card">
+                            <strong>${event.date} - ${event.title}</strong>
+                            <div style="font-size: 12px; margin-top: 5px;">${event.description}</div>
+                        </div>
+                    `).join('');
+                } else {
+                    eventsDiv.innerHTML = '<div>Пока не произошло ни одного события</div>';
+                }
+            }
         }
 
-        function updateMarketData() {
-            if (!currentData.market_data) return;
-
-            document.getElementById('demand').innerText = Math.round(currentData.market_data.demand || 0) + '%';
-            document.getElementById('reputation').innerText = Math.round((currentData.market_data.reputation || 0) * 100) + '%';
-            document.getElementById('marketShare').innerText = Math.round((currentData.market_data.market_share || 0) * 100) + '%';
-            document.getElementById('totalSold').innerText = currentData.market_data.total_sold || 0;
-
-            // Обновляем график
-            if (salesChart && currentData.market_data.sales_history) {
+        function updateMarketChart() {
+            if (salesChart && currentData.market_data && currentData.market_data.sales_history) {
+                const labels = currentData.market_data.sales_history.map((_, i) => i + 1);
+                salesChart.data.labels = labels;
                 salesChart.data.datasets[0].data = currentData.market_data.sales_history;
                 salesChart.update();
             }
-        }
-
-        function updateHistory() {
-            if (!currentData.history_data) return;
-
-            // Активные эффекты
-            const effectsDiv = document.getElementById('activeEffects');
-            if (currentData.history_data.active_effects && currentData.history_data.active_effects.length > 0) {
-                effectsDiv.innerHTML = currentData.history_data.active_effects.map(effect => `
-                    <div class="card card-warning">${effect}</div>
-                `).join('');
-            } else {
-                effectsDiv.innerHTML = '<div>Нет активных эффектов</div>';
-            }
-
-            // Произошедшие события
-            const eventsDiv = document.getElementById('pastEvents');
-            if (currentData.history_data.past_events && currentData.history_data.past_events.length > 0) {
-                eventsDiv.innerHTML = currentData.history_data.past_events.map(event => `
-                    <div class="card">
-                        <strong>${event.date} - ${event.title}</strong>
-                        <div style="font-size: 12px; margin-top: 5px;">${event.description}</div>
-                    </div>
-                `).join('');
-            } else {
-                eventsDiv.innerHTML = '<div>Пока не произошло ни одного события</div>';
-            }
-        }
-
-        function selectComponent(element) {
-            const type = element.dataset.type;
-            document.querySelectorAll(`.component-item[data-type="${type}"]`).forEach(el => {
-                el.classList.remove('selected');
-            });
-            element.classList.add('selected');
         }
 
         function showMessage(text, type = 'info') {
@@ -643,7 +700,6 @@ HTML_TEMPLATE = """
             setTimeout(() => message.remove(), 3000);
         }
 
-        // Инициализация графика
         function initChart() {
             const ctx = document.getElementById('salesChart').getContext('2d');
             salesChart = new Chart(ctx, {
@@ -670,18 +726,17 @@ HTML_TEMPLATE = """
             });
         }
 
-        // События
-        document.getElementById('priceSlider').addEventListener('input', updatePrice);
-        document.getElementById('marketingSlider').addEventListener('input', updateMarketing);
-
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                nextWeek();
-            }
-        });
+        // Загрузка сохранённых выборов при старте
+        async function loadSavedSelections() {
+            const response = await fetch('/api/get_selections');
+            const data = await response.json();
+            if (data.cpu) selectedCPUName = data.cpu;
+            if (data.ram) selectedRAMName = data.ram;
+        }
 
         // Запуск
         initChart();
+        loadSavedSelections();
         fetchGameState();
         setInterval(fetchGameState, 2000);
     </script>
@@ -689,24 +744,6 @@ HTML_TEMPLATE = """
 </html>
 """
 
-import sys
-import os
-from flask import Flask, render_template_string, jsonify, request
-import json
-import threading
-import webbrowser
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from engine import TimeEngine
-from components import CPU, RAM, ComponentDatabase  # Добавляем ComponentDatabase
-from constructor import ConsoleBuild
-
-app = Flask(__name__)
-game_engine = None
-
-
-# ... (весь HTML_TEMPLATE такой же, не меняем) ...
 
 class GameWebGUI:
     def __init__(self):
@@ -718,13 +755,45 @@ class GameWebGUI:
         self.sales_history = []
         self.cpu_cache = []
         self.ram_cache = []
-        # Добавляем историю событий для отображения
         self.events_history = []
 
     def setup_routes(self):
         @app.route('/')
         def index():
             return render_template_string(HTML_TEMPLATE)
+
+        @app.route('/api/select_cpu', methods=['POST'])
+        def select_cpu():
+            """Сохранить выбранный процессор"""
+            data = request.json
+            cpu_name = data.get('cpu_name')
+
+            # Находим объект CPU
+            for cpu in self.engine.db.cpus:
+                if cpu.name == cpu_name:
+                    self.selected_cpu = cpu
+                    break
+            return jsonify({'success': True})
+
+        @app.route('/api/select_ram', methods=['POST'])
+        def select_ram():
+            """Сохранить выбранную память"""
+            data = request.json
+            ram_name = data.get('ram_name')
+
+            for ram in self.engine.db.rams:
+                if ram.name == ram_name:
+                    self.selected_ram = ram
+                    break
+            return jsonify({'success': True})
+
+        @app.route('/api/get_selections')
+        def get_selections():
+            """Получить сохранённые выборы"""
+            return jsonify({
+                'cpu': self.selected_cpu.name if self.selected_cpu else None,
+                'ram': self.selected_ram.name if self.selected_ram else None
+            })
 
         @app.route('/api/components')
         def get_components():
@@ -758,7 +827,6 @@ class GameWebGUI:
         def game_state():
             """Получить полное состояние игры"""
             try:
-                # Получаем доступные компоненты через engine.db
                 available_cpus = self.engine.db.get_available_cpus_by_year(self.engine.year)
                 available_rams = self.engine.db.get_available_rams_by_year(self.engine.year)
 
@@ -790,7 +858,7 @@ class GameWebGUI:
                         self.engine.sales_manager.current_price
                     )
 
-                # Данные истории - собираем активные эффекты
+                # Данные истории
                 active_effects = []
                 effects = self.engine.event_manager.game_state
 
@@ -809,7 +877,6 @@ class GameWebGUI:
                     active_effects.append(
                         f"🚀 Космический бонус: +{(effects['space_bonus_multiplier'] - 1) * 100:.0f}% к продажам")
 
-                # Произошедшие события
                 past_events = []
                 for event in self.engine.event_manager.calendar.triggered_events[-15:]:
                     past_events.append({
@@ -823,7 +890,6 @@ class GameWebGUI:
                     'past_events': past_events
                 }
 
-                # Форматируем дату
                 months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
                           'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря']
                 date_str = f"{self.engine.week}-я неделя {months[self.engine.month - 1]} {self.engine.year} года"
@@ -846,10 +912,8 @@ class GameWebGUI:
                     'available_rams': [
                         {'name': ram.name, 'price': ram.price, 'power': ram.power, 'size': ram.size}
                         for ram in available_rams],
-                    'selected_cpu': self.selected_cpu.name if self.selected_cpu else None,
-                    'selected_ram': self.selected_ram.name if self.selected_ram else None,
-                    'selected_cost': (self.selected_cpu.price if self.selected_cpu else 0) + (
-                        self.selected_ram.price if self.selected_ram else 0),
+                    'saved_cpu': self.selected_cpu.name if self.selected_cpu else None,
+                    'saved_ram': self.selected_ram.name if self.selected_ram else None,
                     'market_data': market_data,
                     'history_data': history_data,
                     'sales_status': self.engine.sales_manager.is_selling
@@ -878,7 +942,6 @@ class GameWebGUI:
 
                 print(f"Сборка консоли: CPU={cpu_name}, RAM={ram_name}")
 
-                # Находим компоненты
                 cpu = None
                 ram = None
 
@@ -904,6 +967,10 @@ class GameWebGUI:
                 build.ram = ram
                 self.engine.console_build = build
                 self.engine.balance -= total_cost
+
+                # Сбрасываем выбранные компоненты
+                self.selected_cpu = None
+                self.selected_ram = None
 
                 return jsonify({'success': True, 'message': f'Консоль собрана! Стоимость: ${total_cost:,.0f}'})
             except Exception as e:
