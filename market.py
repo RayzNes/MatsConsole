@@ -10,24 +10,30 @@ from constructor import ConsoleBuild
 class Market:
     """Класс, моделирующий рыночный спрос"""
 
-    def __init__(self, total_buyers: int = 10000):
+    def __init__(self, total_buyers: int = 10000, event_manager=None):
         self.total_buyers = total_buyers  # Общее количество потенциальных покупателей
         self.market_share = 0.0  # Доля рынка, которую заняла консоль
         self.total_sold = 0  # Всего продано консолей за всё время
         self.reputation = 0.5  # Репутация компании (0-1), влияет на продажи
         self.market_trend = 0.0  # Тренд рынка (-0.2 до +0.2)
+        self.event_manager = event_manager  # Ссылка на менеджер событий
 
     def calculate_demand_score(self, console: ConsoleBuild, price: float) -> float:
         """
         Рассчитать индекс привлекательности консоли (0-100)
-        Формула учитывает: цену, мощность, год выпуска, репутацию
+        Формула учитывает: цену, мощность, год выпуска, репутацию, исторические события
         """
         if not console or not console.is_complete():
             return 0.0
 
+        # Получаем чувствительность к цене из исторических событий
+        price_sensitivity = 1.0
+        if self.event_manager:
+            price_sensitivity = self.event_manager.get_price_sensitivity()
+
         # Идеальная цена для расчёта (чем ниже, тем лучше)
         # Чем ниже цена, тем выше ценовой фактор
-        price_factor = max(0, 1.0 - (price / 500.0))
+        price_factor = max(0, 1.0 - (price / 500.0) * price_sensitivity)
 
         # Фактор мощности (чем мощнее, тем лучше)
         power = console.calculate_total_power()
@@ -37,11 +43,15 @@ class Market:
         reputation_factor = self.reputation
 
         # Фактор времени - новые консоли привлекательнее
-        # (в текущей версии всегда 1, позже добавим старение)
         time_factor = 1.0
 
         # Тренд рынка - общий интерес к играм
         market_trend_factor = 1.0 + self.market_trend
+
+        # Исторический множитель размера рынка
+        market_multiplier = 1.0
+        if self.event_manager:
+            market_multiplier = self.event_manager.get_market_multiplier()
 
         # Итоговый индекс привлекательности (0-100)
         demand_score = (
@@ -49,7 +59,7 @@ class Market:
                                power_factor * 35 +  # Мощность даёт до 35 баллов
                                reputation_factor * 15 +  # Репутация даёт до 15 баллов
                                time_factor * 10  # Время даёт до 10 баллов
-                       ) * market_trend_factor
+                       ) * market_trend_factor * market_multiplier
 
         # Ограничиваем от 0 до 100
         return max(0.0, min(100.0, demand_score))
@@ -80,11 +90,16 @@ class Market:
         # Случайные колебания рынка
         random_factor = random.uniform(0.8, 1.2)
 
+        # Исторический множитель размера рынка
+        market_size = self.total_buyers
+        if self.event_manager:
+            market_size = int(self.total_buyers * self.event_manager.get_market_multiplier())
+
         # Процент рынка, который мы займём (от 0% до 15%)
         market_penetration = (demand_score / 100.0) * 0.15 * marketing_factor * random_factor
 
         # Количество продаж
-        sales = int(self.total_buyers * market_penetration)
+        sales = int(market_size * market_penetration)
 
         # Небольшой эффект "сарафанного радио" - больше продаж = больше репутация
         if sales > 0:
@@ -93,9 +108,10 @@ class Market:
         # Обновляем общее количество проданных
         self.total_sold += sales
 
-        # Обновляем долю рынка
-        self.market_share = self.total_sold / (self.total_buyers * 0.5)  # Максимум 50% рынка
-        self.market_share = min(0.5, self.market_share)
+        # Обновляем долю рынка (с учётом исторического множителя)
+        max_potential = market_size * 0.5
+        if max_potential > 0:
+            self.market_share = min(0.5, self.total_sold / max_potential)
 
         return sales
 
@@ -129,6 +145,11 @@ class Market:
             print(f"📈 Тренд рынка: {self.market_trend * 100:+.1f}%")
             print(f"📦 Всего продано: {self.total_sold} шт.")
             print(f"🏆 Доля рынка: {self.market_share * 100:.1f}%")
+
+            if self.event_manager:
+                multiplier = self.event_manager.get_market_multiplier()
+                if multiplier != 1.0:
+                    print(f"📉 Исторический множитель рынка: {multiplier * 100:.0f}%")
         else:
             print("❌ Консоль не собрана. Невозможно выйти на рынок.")
 
@@ -254,7 +275,7 @@ class SalesManager:
                 self.is_selling = not self.is_selling
                 status = "ВКЛЮЧЕНЫ" if self.is_selling else "ВЫКЛЮЧЕНЫ"
                 print(f"\n✅ Продажи {status}")
-                return False  # Баланс не меняется
+                return False
 
             elif choice == "2":
                 self.set_price()

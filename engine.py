@@ -5,6 +5,7 @@
 from typing import Optional
 from constructor import ConsoleBuild, ConstructorMenu
 from market import Market, SalesManager
+from events import EventManager
 
 
 class TimeEngine:
@@ -17,8 +18,11 @@ class TimeEngine:
         self.balance = 100_000
         self.console_build: Optional[ConsoleBuild] = None
 
-        # Добавляем рыночные механизмы
-        self.market = Market(total_buyers=10000)
+        # Добавляем менеджер исторических событий
+        self.event_manager = EventManager()
+
+        # Добавляем рыночные механизмы с историей
+        self.market = Market(total_buyers=10000, event_manager=self.event_manager)
         self.sales_manager = SalesManager(self.market)
 
         self.months = [
@@ -38,17 +42,31 @@ class TimeEngine:
                 self.month = 1
                 self.year += 1
 
+            # Проверяем исторические события в начале каждого месяца
+            self.check_historical_events()
+
         self.update_balance()
 
+    def check_historical_events(self):
+        """Проверить исторические события для текущей даты"""
+        events = self.event_manager.update(self.year, self.month)
+
+        if events:
+            # Пауза для чтения сообщений
+            input("\nНажмите Enter для продолжения...")
+
     def update_balance(self):
-        """Обновить баланс (математическая модель с учётом продаж)"""
+        """Обновить баланс (математическая модель с учётом продаж и истории)"""
         import random
 
         # Базовые еженедельные расходы (аренда, зарплаты и т.д.)
         weekly_expenses = 1200
 
+        # Учитываем историческое влияние на стоимость производства
+        production_cost_multiplier = self.event_manager.game_state.get("production_cost_multiplier", 1.0)
+        weekly_expenses *= production_cost_multiplier
+
         # Расходы на производство консолей (если продажи активны)
-        production_costs = 0
         if self.sales_manager.is_selling and self.console_build and self.console_build.is_complete():
             # Получаем продажи за неделю
             sales, net_revenue = self.sales_manager.process_weekly_sales(self.console_build)
@@ -66,10 +84,11 @@ class TimeEngine:
         # Рыночные колебания
         market_fluctuation = random.randint(-500, 800)
 
-        # Инфляция
+        # Инфляция с учётом исторических событий
         inflation_impact = 0
+        inflation_multiplier = self.event_manager.game_state.get("inflation_boost", 1.0)
         if self.month % 3 == 0 and self.week == 1:
-            inflation_impact = -int(self.balance * 0.02)
+            inflation_impact = -int(self.balance * 0.02 * inflation_multiplier)
 
         delta = -weekly_expenses + market_fluctuation + inflation_impact
         self.balance += delta
@@ -96,6 +115,10 @@ class TimeEngine:
         if self.console_build and self.console_build.is_complete():
             print(f"🕹️  Консоль: {self.console_build.cpu.name} + {self.console_build.ram.name}")
             print(f"⚡ Мощность: {self.console_build.calculate_total_power()} ед.")
+
+        # Отображаем кризис, если активен
+        if self.event_manager.active_crisis:
+            print(f"💀 КРИЗИС 1983 АКТИВЕН! Спрос упал на 85%")
 
         # Статус продаж
         if self.sales_manager.is_selling and self.console_build and self.console_build.is_complete():
@@ -160,10 +183,37 @@ class TimeEngine:
         """Запустить меню управления продажами"""
         self.sales_manager.run_sales_menu(self.console_build, self.balance)
 
+    def show_history_menu(self):
+        """Показать историческую информацию"""
+        print("\n" + "=" * 60)
+        print("ИСТОРИЧЕСКАЯ ИНФОРМАЦИЯ")
+        print("=" * 60)
+        print("1. Активные исторические эффекты")
+        print("2. Произошедшие события")
+        print("0. Назад")
+        print("=" * 60)
+
+        choice = input("\nВаш выбор: ")
+
+        if choice == "1":
+            self.event_manager.display_active_effects()
+        elif choice == "2":
+            print("\n" + "=" * 60)
+            print("ПРОИЗОШЕДШИЕ ИСТОРИЧЕСКИЕ СОБЫТИЯ")
+            print("=" * 60)
+            if self.event_manager.calendar.triggered_events:
+                for event in self.event_manager.calendar.triggered_events:
+                    print(f"\n📅 {event.month}.{event.year} - {event.title}")
+                    print(f"   {event.description}")
+            else:
+                print("Пока не произошло ни одного события.")
+            print("=" * 60)
+
     def run(self):
         """Главный игровой цикл"""
         print("=" * 60)
         print("ЭКОНОМИЧЕСКИЙ СИМУЛЯТОР - РАЗРАБОТКА КОНСОЛИ")
+        print("ИСТОРИЧЕСКИЙ РЕЖИМ 1973-1983")
         print("=" * 60)
         print(f"Старт: {self.get_date_string()}")
         print(f"Начальный баланс: {self.format_balance()}")
@@ -174,13 +224,16 @@ class TimeEngine:
         print("  s - показать текущую сборку")
         print("  m - управление продажами и ценой")
         print("  i - информация о рынке")
+        print("  h - историческая информация (события и эффекты)")
         print("  q - выйти из игры")
         print("=" * 60)
 
+        # Проверяем события в первый месяц
+        self.check_historical_events()
         self.display_status()
 
         while True:
-            user_input = input("\n➤ Действие (Enter/c/s/m/i/q): ").lower()
+            user_input = input("\n➤ Действие (Enter/c/s/m/i/h/q): ").lower()
 
             if user_input == 'q':
                 print("\nИгра завершена.")
@@ -211,6 +264,10 @@ class TimeEngine:
             elif user_input == 'i':
                 self.market.display_market_info(self.console_build,
                                                 self.sales_manager.current_price)
+                self.display_status()
+
+            elif user_input == 'h':
+                self.show_history_menu()
                 self.display_status()
 
             else:  # Enter или любая другая клавиша - пропуск недели
